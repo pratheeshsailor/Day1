@@ -178,17 +178,32 @@ public class AdminService {
 
     private static void viewCustomerTransactionHistory(DynamoDbClient client, Scanner sc) {
         System.out.print("Enter CustomerID to view transaction history: ");
-        String customerId = sc.nextLine();
+        String customerId = sc.nextLine().trim();
 
         System.out.println("\n--- Accounts of CustomerID: " + customerId + " ---");
-        // Scan accounts to get all accounts of this customer
-        ScanResponse accountResponse = client.scan(ScanRequest.builder().tableName("Account").build());
+
+        // Scan all accounts belonging to this customer
+        ScanResponse accountResponse = client.scan(
+                ScanRequest.builder().tableName("Account").build()
+        );
+
+        boolean found = false;
+
         for (Map<String, AttributeValue> account : accountResponse.items()) {
-            if (account.get("CustomerID").s().equals(customerId)) {
+            if (account.containsKey("CustomerID") &&
+                    account.get("CustomerID").s().equals(customerId)) {
+
+                found = true;
                 String accountId = account.get("AccountID").s();
                 System.out.println("\nAccountID: " + accountId);
-                AccountService.showTransactionHistory(client, new Scanner(System.in), customerId);
+
+                // ✅ Pass AccountID (not CustomerID)
+                AccountService.showTransactionHistory(client, accountId);
             }
+        }
+
+        if (!found) {
+            System.out.println("⚠️ No accounts found for CustomerID: " + customerId);
         }
     }
 
