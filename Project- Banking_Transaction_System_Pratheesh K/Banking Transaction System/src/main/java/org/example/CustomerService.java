@@ -194,7 +194,20 @@ public class CustomerService {
                     AccountService.transfer(client, sc, customerId);
                     break;
                 case "4":
-                    AccountService.showTransactionHistory(client, sc, customerId);
+                    // Fetch all accounts for this customer and show transaction history
+                    ScanResponse accountResponse = client.scan(ScanRequest.builder().tableName("Account").build());
+                    boolean found = false;
+                    for (Map<String, AttributeValue> account : accountResponse.items()) {
+                        if (account.containsKey("CustomerID") && account.get("CustomerID").s().equals(customerId)) {
+                            found = true;
+                            String accountId = account.get("AccountID").s();
+                            System.out.println("\n📜 Transaction History for AccountID: " + accountId);
+                            AccountService.showTransactionHistory(client, accountId);
+                        }
+                    }
+                    if (!found) {
+                        System.out.println("ℹ️ No accounts found for CustomerID: " + customerId);
+                    }
                     break;
                 case "5":
                     System.out.println("Customer logged out.");
