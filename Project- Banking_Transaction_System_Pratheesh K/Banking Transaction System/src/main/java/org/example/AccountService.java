@@ -55,14 +55,11 @@ public class AccountService {
                             KeySchemaElement.builder().attributeName("TransactionID").keyType(KeyType.HASH).build(),
                             KeySchemaElement.builder().attributeName("AccountID").keyType(KeyType.RANGE).build()
                     )
-                    // ✅ Add GSI on AccountID for faster queries
                     .globalSecondaryIndexes(GlobalSecondaryIndex.builder()
                             .indexName("AccountIDIndex")
                             .keySchema(KeySchemaElement.builder()
                                     .attributeName("AccountID").keyType(KeyType.HASH).build())
-                            .projection(Projection.builder()
-                                    .projectionType(ProjectionType.ALL)
-                                    .build())
+                            .projection(Projection.builder().projectionType(ProjectionType.ALL).build())
                             .build())
                     .billingMode(BillingMode.PAY_PER_REQUEST)
                     .build());
@@ -88,7 +85,7 @@ public class AccountService {
         client.putItem(PutItemRequest.builder().tableName(ACCOUNT_TABLE).item(item).build());
         System.out.println("✅ Account created with AccountID: " + accountId);
 
-        // ---------------- Set Transfer PIN ----------------
+        // Set Transfer PIN
         System.out.print("Set a 4-digit transfer PIN: ");
         String pin = sc.nextLine();
         String hashedPin = PinHasher.hashPin(pin);
@@ -170,7 +167,7 @@ public class AccountService {
         client.putItem(PutItemRequest.builder().tableName(TRANSACTION_TABLE).item(item).build());
     }
 
-    // ---------------- PIN Verification Helper ----------------
+    // ---------------- PIN Verification ----------------
     private static boolean verifyOrSetPin(DynamoDbClient client, Scanner sc, String accountId) {
         GetItemResponse pinResponse = client.getItem(
                 GetItemRequest.builder()
@@ -349,49 +346,48 @@ public class AccountService {
     }
 
     // ---------------- Transaction History ----------------
-    public static void showTransactionHistory(DynamoDbClient client, Scanner sc, String customerId) {
-        System.out.print("Enter AccountID: ");
-        String accountId = sc.nextLine();
-
-        if (!accountBelongsToCustomer(client, accountId, customerId)) {
-            System.out.println("❌ Wrong AccountID!");
-            return;
-        }
-
-        // ✅ Query instead of scan (faster with GSI)
-        QueryResponse response = client.query(QueryRequest.builder()
-                .tableName(TRANSACTION_TABLE)
-                .indexName("AccountIDIndex")
-                .keyConditionExpression("AccountID = :a")
-                .expressionAttributeValues(Map.of(":a", AttributeValue.builder().s(accountId).build()))
-                .build());
-
-        List<Map<String, AttributeValue>> txns = response.items();
-        txns.sort(Comparator.comparingLong(m -> Long.parseLong(m.get("TransactionID").s().substring(1))));
-
+    public static void showTransactionHistory(DynamoDbClient client, String accountId) {
         System.out.println("\n📜 Transaction History for AccountID: " + accountId);
-        for (Map<String, AttributeValue> txn : txns) {
-            String bankDetails = txn.containsKey("BankDetails") ? txn.get("BankDetails").s() : "N/A";
-            String destAcc = txn.containsKey("DestinationAccountID") ? txn.get("DestinationAccountID").s() : null;
 
-            if (destAcc != null && !destAcc.isEmpty()) {
-                System.out.printf("TransactionID: %s | Type: %s | Amount: %s | Current Balance: %s | Timestamp: %s | BankDetails: %s | DestinationAccountID: %s%n",
-                        txn.get("TransactionID").s(),
-                        txn.get("Type").s(),
-                        txn.get("Amount").n(),
-                        txn.get("CurrentBalance").n(),
-                        txn.get("Timestamp").s(),
-                        bankDetails,
-                        destAcc);
-            } else {
-                System.out.printf("TransactionID: %s | Type: %s | Amount: %s | Current Balance: %s | Timestamp: %s | BankDetails: %s%n",
-                        txn.get("TransactionID").s(),
-                        txn.get("Type").s(),
-                        txn.get("Amount").n(),
-                        txn.get("CurrentBalance").n(),
-                        txn.get("Timestamp").s(),
-                        bankDetails);
+        try {
+            // Scan TransactionHistory table
+            ScanResponse response = client.scan(ScanRequest.builder()
+                    .tableName("TransactionHistory")
+                    .build());
+
+            boolean found = false;
+
+            for (Map<String, AttributeValue> item : response.items()) {
+                if (item.containsKey("AccountID") && accountId.equals(item.get("AccountID").s())) {
+                    found = true;
+
+                    // Safely fetch each attribute
+                    String txnId = item.containsKey("TransactionID") ? item.get("TransactionID").s() : "N/A";
+                    String type = item.containsKey("Type") ? item.get("Type").s() : "N/A";
+                    String amount = item.containsKey("Amount") ? item.get("Amount").n() : "N/A";
+                    String balance = item.containsKey("CurrentBalance") ? item.get("CurrentBalance").n() : "N/A";
+                    String timestamp = item.containsKey("Timestamp") ? item.get("Timestamp").s() : "N/A";
+                    String bankDetails = item.containsKey("BankDetails") ? item.get("BankDetails").s() : "N/A";
+                    String destAccountId = item.containsKey("DestinationAccountID") ? item.get("DestinationAccountID").s() : "N/A";
+
+                    System.out.println(
+                            "TransactionID: " + txnId +
+                                    " | Type: " + type +
+                                    " | Amount: " + amount +
+                                    " | CurrentBalance: " + balance +
+                                    " | Timestamp: " + timestamp +
+                                    " | BankDetails: " + bankDetails +
+                                    " | DestinationAccountID: " + destAccountId
+                    );
+                }
             }
+
+            if (!found) {
+                System.out.println("ℹ️ No transactions found for AccountID: " + accountId);
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error fetching transaction history: " + e.getMessage());
         }
     }
 }
